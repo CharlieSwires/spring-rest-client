@@ -13,9 +13,9 @@ public class RestClientService {
 
     private final WebClient webClient;
 
-    public RestClientService(WebClient.Builder webClientBuilder) {
+    public RestClientService(WebClient.Builder webClientBuilder, String url) {
         this.webClient = webClientBuilder
-                .baseUrl("http://localhost:8080")
+                .baseUrl(url)
                 .build();
     }
 
