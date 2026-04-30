@@ -71,7 +71,7 @@
                 </execution>
             </executions>
             <configuration>
-                <mainClass>com.charlie.springrestclient.SpringRestClientApplication</mainClass>
+                <mainClass>com.charlie.springasyncwebclient.SpringAsyncWebClientApplication</mainClass>
             </configuration>
         </plugin>
     </plugins>
