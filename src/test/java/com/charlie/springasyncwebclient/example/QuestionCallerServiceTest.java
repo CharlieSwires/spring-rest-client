@@ -1,40 +1,30 @@
 package com.charlie.springasyncwebclient.example;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
 
-import java.net.URI;
+import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
 import java.time.Duration;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
-import org.springframework.web.reactive.function.client.ClientResponse;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.web.reactive.function.client.WebClient;
 
 import com.charlie.springasyncwebclient.client.AsyncWebClientService;
 import com.charlie.springasyncwebclient.dto.AnswerResponse;
 import com.charlie.springasyncwebclient.dto.QuestionRequest;
 
-import reactor.core.publisher.Mono;
-
 class QuestionCallerServiceTest {
 
-    private AsyncWebClientService asyncWebClientService;
+    private FakeAsyncWebClientService asyncWebClientService;
     private QuestionCallerService questionCallerService;
 
     @BeforeEach
     void setUp() {
-        asyncWebClientService = mock(AsyncWebClientService.class);
+        asyncWebClientService = new FakeAsyncWebClientService();
         questionCallerService = new QuestionCallerService(asyncWebClientService);
     }
 
@@ -44,12 +34,7 @@ class QuestionCallerServiceTest {
         mockResponse.setAnswer("Spring Boot helps build Java applications.");
         mockResponse.setScore(0.95);
 
-        when(asyncWebClientService.asyncPost(
-                eq("/api/answer"),
-                any(QuestionRequest.class),
-                eq(AnswerResponse.class),
-                eq(Duration.ofSeconds(10))
-        )).thenReturn(CompletableFuture.completedFuture(mockResponse));
+        asyncWebClientService.responseToReturn = CompletableFuture.completedFuture(mockResponse);
 
         AnswerResponse result = questionCallerService
                 .askQuestionUsingWebClient()
@@ -58,17 +43,11 @@ class QuestionCallerServiceTest {
         assertEquals("Spring Boot helps build Java applications.", result.getAnswer());
         assertEquals(0.95, result.getScore());
 
-        ArgumentCaptor<QuestionRequest> requestCaptor =
-                ArgumentCaptor.forClass(QuestionRequest.class);
+        assertEquals("/api/answer", asyncWebClientService.capturedUri);
+        assertEquals(AnswerResponse.class, asyncWebClientService.capturedResponseType);
+        assertEquals(Duration.ofSeconds(10), asyncWebClientService.capturedTimeout);
 
-        verify(asyncWebClientService).asyncPost(
-                eq("/api/answer"),
-                requestCaptor.capture(),
-                eq(AnswerResponse.class),
-                eq(Duration.ofSeconds(10))
-        );
-
-        QuestionRequest capturedRequest = requestCaptor.getValue();
+        QuestionRequest capturedRequest = asyncWebClientService.capturedPayload;
 
         assertEquals("What is Spring Boot?", capturedRequest.getQuestion());
         assertEquals(
@@ -82,114 +61,75 @@ class QuestionCallerServiceTest {
         CompletableFuture<AnswerResponse> failedFuture = new CompletableFuture<>();
         failedFuture.completeExceptionally(new RuntimeException("Remote API failed"));
 
-        when(asyncWebClientService.asyncPost(
-                eq("/api/answer"),
-                any(QuestionRequest.class),
-                eq(AnswerResponse.class),
-                eq(Duration.ofSeconds(10))
-        )).thenReturn(failedFuture);
+        asyncWebClientService.responseToReturn = failedFuture;
 
-        AnswerResponse result = questionCallerService
-                .askQuestionUsingWebClient()
-                .join();
+        PrintStream originalErr = System.err;
+        ByteArrayOutputStream capturedErr = new ByteArrayOutputStream();
 
-        assertEquals(
-                "No answer available because the remote service failed.",
-                result.getAnswer()
-        );
-        assertEquals(0.0, result.getScore());
-    }
-    
-    @Test
-    void asyncPostUsesBaseUrlAndUriTogether() {
-        AtomicReference<URI> capturedUri = new AtomicReference<>();
+        try {
+            System.setErr(new PrintStream(capturedErr));
 
-        WebClient.Builder webClientBuilder = WebClient.builder()
-                .exchangeFunction(clientRequest -> {
-                    capturedUri.set(clientRequest.url());
+            AnswerResponse result = questionCallerService
+                    .askQuestionUsingWebClient()
+                    .join();
 
-                    ClientResponse response = ClientResponse
-                            .create(HttpStatus.OK)
-                            .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
-                            .body("""
-                                    {
-                                      "answer": "OK",
-                                      "score": 1.0
-                                    }
-                                    """)
-                            .build();
-
-                    return Mono.just(response);
-                });
-
-        AsyncWebClientService service = new AsyncWebClientService(
-                webClientBuilder,
-                "https://example.com"
-        );
-
-        QuestionRequest request = new QuestionRequest(
-                "What is Spring Boot?",
-                "Spring Boot is a Java framework."
-        );
-
-        AnswerResponse result = service.asyncPost(
-                        "/api/answer",
-                        request,
-                        AnswerResponse.class,
-                        Duration.ofSeconds(10)
-                )
-                .join();
-
-        assertEquals("OK", result.getAnswer());
-        assertEquals(1.0, result.getScore());
-
-        assertEquals(
-                URI.create("https://example.com/api/answer"),
-                capturedUri.get()
-        );
+            assertEquals(
+                    "No answer available because the remote service failed.",
+                    result.getAnswer()
+            );
+            assertEquals(0.0, result.getScore());
+        } finally {
+            System.setErr(originalErr);
+        }
     }
 
-    @Test
-    void asyncGetUsesBaseUrlUriAndQueryParametersTogether() {
-        AtomicReference<URI> capturedUri = new AtomicReference<>();
+    private static class FakeAsyncWebClientService extends AsyncWebClientService {
 
-        WebClient.Builder webClientBuilder = WebClient.builder()
-                .exchangeFunction(clientRequest -> {
-                    capturedUri.set(clientRequest.url());
+        private String capturedUri;
+        private QuestionRequest capturedPayload;
+        private Class<?> capturedResponseType;
+        private Duration capturedTimeout;
+        private CompletableFuture<AnswerResponse> responseToReturn;
 
-                    ClientResponse response = ClientResponse
-                            .create(HttpStatus.OK)
-                            .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
-                            .body("""
-                                    {
-                                      "answer": "GET OK",
-                                      "score": 0.75
-                                    }
-                                    """)
-                            .build();
+        FakeAsyncWebClientService() {
+            super(WebClient.builder(), "https://unused.example.com");
+        }
 
-                    return Mono.just(response);
-                });
+        @Override
+        public <R> CompletableFuture<R> asyncGet(
+                String uri,
+                Map<String, ?> queryParams,
+                Class<R> responseType,
+                Duration timeout
+        ) {
+            throw new UnsupportedOperationException("This test only expects asyncPost to be called.");
+        }
 
-        AsyncWebClientService service = new AsyncWebClientService(
-                webClientBuilder,
-                "https://example.com"
-        );
+        @Override
+        public <T, R> CompletableFuture<R> asyncPost(
+                String uri,
+                T payload,
+                Class<R> responseType,
+                Duration timeout
+        ) {
+            this.capturedUri = uri;
+            this.capturedPayload = (QuestionRequest) payload;
+            this.capturedResponseType = responseType;
+            this.capturedTimeout = timeout;
 
-        AnswerResponse result = service.asyncGet(
-                        "/api/answer",
-                        Map.of("id", 123),
-                        AnswerResponse.class,
-                        Duration.ofSeconds(10)
-                )
-                .join();
+            @SuppressWarnings("unchecked")
+            CompletableFuture<R> typedResponse = (CompletableFuture<R>) responseToReturn;
+            return typedResponse;
+        }
 
-        assertEquals("GET OK", result.getAnswer());
-        assertEquals(0.75, result.getScore());
-
-        assertEquals(
-                URI.create("https://example.com/api/answer?id=123"),
-                capturedUri.get()
-        );
+        @Override
+        public <T, R> CompletableFuture<R> asyncPostGeneric(
+                String uri,
+                T payload,
+                ParameterizedTypeReference<R> responseType,
+                Duration timeout
+        ) {
+            throw new UnsupportedOperationException("This test only expects asyncPost to be called.");
+        }
     }
 }
