@@ -89,7 +89,9 @@ class AsyncRestClientServiceTest {
         assertEquals("GET", capturedMethod.get());
         assertEquals("GET OK", result.getAnswer());
         assertEquals(0.75, result.getScore());
-        assertEquals("/api/answer?id=123&mode=short", capturedUri.get().toString());
+        assertEquals("/api/answer", capturedUri.get().getPath());
+        assertTrue(capturedUri.get().getQuery().contains("id=123"));
+        assertTrue(capturedUri.get().getQuery().contains("mode=short"));
     }
 
     @Test

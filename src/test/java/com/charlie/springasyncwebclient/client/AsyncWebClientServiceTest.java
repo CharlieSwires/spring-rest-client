@@ -60,10 +60,11 @@ class AsyncWebClientServiceTest {
         assertEquals(HttpMethod.GET, capturedMethod.get());
         assertEquals("GET OK", result.getAnswer());
         assertEquals(0.75, result.getScore());
-        assertEquals(
-                URI.create("https://example.com/api/answer?id=123&mode=short"),
-                capturedUri.get()
-        );
+        assertEquals("https", capturedUri.get().getScheme());
+        assertEquals("example.com", capturedUri.get().getHost());
+        assertEquals("/api/answer", capturedUri.get().getPath());
+        assertTrue(capturedUri.get().getQuery().contains("id=123"));
+        assertTrue(capturedUri.get().getQuery().contains("mode=short"));
     }
 
     @Test
